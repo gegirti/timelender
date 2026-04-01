@@ -17,7 +17,7 @@ This is a tracking list for the alpha development of TimeLender.
 ## Workflow Features
 - [ ] **Auto-Pause on Inactivity**: Detect when the user hasn't interacted with Blender for X minutes and pause the timer.
 - [x] **Session Logs**: View history of previous sessions within the sidebar.
-- [ ] **Export to CSV/JSON**: Support for exporting time data for billing or tracking.
+- [x] **Export to CSV**: Support for exporting time data for billing or tracking.
 - [ ] **Multi-file aggregation**: Track total time across various project files.
 
 ## Technical Tasks

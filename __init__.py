@@ -8,10 +8,12 @@ bl_info = {
     "category": "System",
 }
 
+import csv
 import datetime
 import bpy
 from bpy.props import BoolProperty, CollectionProperty, EnumProperty, IntProperty, StringProperty
 from bpy.app.handlers import persistent
+from bpy_extras.io_utils import ExportHelper
 
 
 # ─────────────────────────────────────────────
@@ -181,6 +183,38 @@ class TIMELENDER_OT_reset(bpy.types.Operator):
 
 
 # ─────────────────────────────────────────────
+#  Export Log Operator
+# ─────────────────────────────────────────────
+
+class TIMELENDER_OT_export_log(bpy.types.Operator, ExportHelper):
+    bl_idname = "timelender.export_log"
+    bl_label = "Export Session Log"
+    bl_description = "Export the session log to a CSV file"
+
+    filename_ext = ".csv"
+    filter_glob: StringProperty(default="*_timelender_log.csv", options={'HIDDEN'})
+
+    def execute(self, context):
+        log = context.scene.tl_log
+        if not log:
+            self.report({'WARNING'}, "Session log is empty — nothing to export.")
+            return {'CANCELLED'}
+
+        try:
+            with open(self.filepath, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(["Timestamp", "Event"])
+                for entry in log:
+                    writer.writerow([entry.timestamp, entry.event])
+        except OSError as e:
+            self.report({'ERROR'}, f"Could not write file: {e}")
+            return {'CANCELLED'}
+
+        self.report({'INFO'}, f"Log exported to {self.filepath}")
+        return {'FINISHED'}
+
+
+# ─────────────────────────────────────────────
 #  Clear Log Operator
 # ─────────────────────────────────────────────
 
@@ -260,7 +294,9 @@ class TIMELENDER_PT_log(bpy.types.Panel):
                 row.label(text=entry.timestamp, icon='TIME')
                 row.label(text=entry.event)
 
-        layout.operator("timelender.clear_log", icon='TRASH')
+        row = layout.row(align=True)
+        row.operator("timelender.export_log", icon='EXPORT')
+        row.operator("timelender.clear_log", icon='TRASH', text="")
 
 
 # ─────────────────────────────────────────────
@@ -320,6 +356,7 @@ CLASSES = (
     TIMELENDER_OT_start,
     TIMELENDER_OT_pause,
     TIMELENDER_OT_reset,
+    TIMELENDER_OT_export_log,
     TIMELENDER_OT_clear_log,
     TIMELENDER_PT_sidebar,
     TIMELENDER_PT_log,
