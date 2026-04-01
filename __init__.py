@@ -9,7 +9,7 @@ bl_info = {
 }
 
 import bpy
-from bpy.props import BoolProperty, IntProperty
+from bpy.props import BoolProperty, EnumProperty, IntProperty
 from bpy.app.handlers import persistent
 
 
@@ -18,24 +18,39 @@ from bpy.app.handlers import persistent
 # ─────────────────────────────────────────────
 
 def _fmt(seconds: int) -> str:
-    """Return HH:MM:SS string from total seconds."""
     h = seconds // 3600
     m = (seconds % 3600) // 60
     s = seconds % 60
     return f"{h:02d}:{m:02d}:{s:02d}"
 
 
-def _redraw_topbar():
-    """Ask every screen area to redraw so the timer label updates."""
+def _redraw_all():
     for window in bpy.context.window_manager.windows:
         for area in window.screen.areas:
             area.tag_redraw()
 
 
+def _draw_widget(layout, wm):
+    """Shared timer widget: play/pause + reset + clock label."""
+    row = layout.row(align=True)
+    is_running = wm.tl_is_running
+
+    if not is_running:
+        row.operator("timelender.start", text="", icon='PLAY', emboss=True)
+        row.active = True
+    else:
+        row.operator("timelender.pause", text="", icon='PAUSE', emboss=True)
+
+    reset_row = row.row(align=True)
+    reset_row.enabled = wm.tl_elapsed > 0 or is_running
+    reset_row.operator("timelender.reset", text="", icon='LOOP_BACK', emboss=True)
+
+    label_row = layout.row(align=True)
+    label_row.label(text=_fmt(wm.tl_elapsed), icon='TIME')
+
+
 # ─────────────────────────────────────────────
 #  Persistence — load_post handler
-#  Restores wm.tl_elapsed from the scene when
-#  a .blend file is opened.
 # ─────────────────────────────────────────────
 
 @persistent
@@ -48,8 +63,6 @@ def _on_load_post(_filepath):
 
 # ─────────────────────────────────────────────
 #  Modal Timer Operator
-#  Runs silently in the background; increments
-#  tl_elapsed every second while tl_is_running.
 # ─────────────────────────────────────────────
 
 class TIMELENDER_OT_modal(bpy.types.Operator):
@@ -59,7 +72,7 @@ class TIMELENDER_OT_modal(bpy.types.Operator):
 
     _timer = None
 
-    def invoke(self, context, event):
+    def invoke(self, context, _event):
         wm = context.window_manager
         self._timer = wm.event_timer_add(1.0, window=context.window)
         wm.modal_handler_add(self)
@@ -68,15 +81,13 @@ class TIMELENDER_OT_modal(bpy.types.Operator):
     def modal(self, context, event):
         wm = context.window_manager
 
-        # If someone called Stop (reset), we cancel cleanly.
         if wm.tl_should_stop:
             return self.cancel(context)
 
         if event.type == 'TIMER' and wm.tl_is_running:
             wm.tl_elapsed += 1
-            # Persist to scene so the value is saved with the .blend file.
             context.scene.tl_elapsed = wm.tl_elapsed
-            _redraw_topbar()
+            _redraw_all()
 
         return {'PASS_THROUGH'}
 
@@ -91,7 +102,7 @@ class TIMELENDER_OT_modal(bpy.types.Operator):
 
 
 # ─────────────────────────────────────────────
-#  Start / Resume Operator
+#  Start / Pause / Reset Operators
 # ─────────────────────────────────────────────
 
 class TIMELENDER_OT_start(bpy.types.Operator):
@@ -102,19 +113,12 @@ class TIMELENDER_OT_start(bpy.types.Operator):
     def execute(self, context):
         wm = context.window_manager
         wm.tl_is_running = True
-
-        # Launch the modal once; it stays alive until stop/reset.
         if not wm.tl_modal_running:
             wm.tl_modal_running = True
             bpy.ops.timelender.modal('INVOKE_DEFAULT')
-
-        _redraw_topbar()
+        _redraw_all()
         return {'FINISHED'}
 
-
-# ─────────────────────────────────────────────
-#  Pause Operator
-# ─────────────────────────────────────────────
 
 class TIMELENDER_OT_pause(bpy.types.Operator):
     bl_idname = "timelender.pause"
@@ -122,15 +126,10 @@ class TIMELENDER_OT_pause(bpy.types.Operator):
     bl_description = "Pause the project timer"
 
     def execute(self, context):
-        wm = context.window_manager
-        wm.tl_is_running = False
-        _redraw_topbar()
+        context.window_manager.tl_is_running = False
+        _redraw_all()
         return {'FINISHED'}
 
-
-# ─────────────────────────────────────────────
-#  Reset Operator
-# ─────────────────────────────────────────────
 
 class TIMELENDER_OT_reset(bpy.types.Operator):
     bl_idname = "timelender.reset"
@@ -142,15 +141,14 @@ class TIMELENDER_OT_reset(bpy.types.Operator):
         wm.tl_is_running = False
         wm.tl_elapsed = 0
         context.scene.tl_elapsed = 0
-        # Signal the modal to terminate itself cleanly.
         if wm.tl_modal_running:
             wm.tl_should_stop = True
-        _redraw_topbar()
+        _redraw_all()
         return {'FINISHED'}
 
 
 # ─────────────────────────────────────────────
-#  Sidebar (N-panel) Panel
+#  Sidebar (N-panel) — Timer Panel
 # ─────────────────────────────────────────────
 
 class TIMELENDER_PT_sidebar(bpy.types.Panel):
@@ -164,13 +162,9 @@ class TIMELENDER_PT_sidebar(bpy.types.Panel):
         wm = context.window_manager
         layout = self.layout
 
-        # Time display
-        row = layout.row()
-        row.label(text=_fmt(wm.tl_elapsed), icon='TIME')
-
+        layout.label(text=_fmt(wm.tl_elapsed), icon='TIME')
         layout.separator()
 
-        # Controls
         col = layout.column(align=True)
         is_running = wm.tl_is_running
 
@@ -185,53 +179,54 @@ class TIMELENDER_PT_sidebar(bpy.types.Panel):
 
 
 # ─────────────────────────────────────────────
-#  Topbar Draw Function
+#  Sidebar (N-panel) — Settings Panel
 # ─────────────────────────────────────────────
 
-def draw_timer_in_topbar(self, context):
-    # TOPBAR_HT_upper_bar is called for both left and right regions;
-    # only draw in the RIGHT region to avoid duplicate widgets.
+class TIMELENDER_PT_settings(bpy.types.Panel):
+    bl_idname = "TIMELENDER_PT_settings"
+    bl_label = "Settings"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "TimeLender"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(context.scene, "tl_location", text="Widget Location")
+
+
+# ─────────────────────────────────────────────
+#  Topbar Draw Functions
+# ─────────────────────────────────────────────
+
+def draw_timer_topbar_right(self, context):
     if context.region.alignment != 'RIGHT':
         return
-
-    wm = context.window_manager
+    if context.scene.tl_location != 'TOPBAR_RIGHT':
+        return
     layout = self.layout
-
-    # Thin separator to visually offset from the existing right-side items
     layout.separator(factor=1.2)
+    _draw_widget(layout, context.window_manager)
 
-    row = layout.row(align=True)
-    row.scale_x = 1.0
 
-    is_running = wm.tl_is_running
+def draw_timer_topbar_left(self, context):
+    if context.region.alignment != 'LEFT':
+        return
+    if context.scene.tl_location != 'TOPBAR_LEFT':
+        return
+    layout = self.layout
+    layout.separator(factor=1.2)
+    _draw_widget(layout, context.window_manager)
 
-    # ▶ / ⏸  toggle button
-    if not is_running:
-        row.operator(
-            "timelender.start",
-            text="",
-            icon='PLAY',
-            emboss=True,
-        )
-        row.active = True
-    else:
-        row.operator(
-            "timelender.pause",
-            text="",
-            icon='PAUSE',
-            emboss=True,
-        )
 
-    # ↺ Reset
-    reset_row = row.row(align=True)
-    reset_row.enabled = (wm.tl_elapsed > 0 or is_running)
-    reset_row.operator("timelender.reset", text="", icon='LOOP_BACK', emboss=True)
+# ─────────────────────────────────────────────
+#  Status Bar Draw Function
+# ─────────────────────────────────────────────
 
-    # Time display ── styled as a label
-    time_row = layout.row(align=True)
-    time_row.scale_x = 1.0
-    time_row.enabled = True
-    time_row.label(text=_fmt(wm.tl_elapsed), icon='TIME')
+def draw_timer_statusbar(self, context):
+    if context.scene.tl_location != 'STATUSBAR':
+        return
+    _draw_widget(self.layout, context.window_manager)
 
 
 # ─────────────────────────────────────────────
@@ -244,45 +239,50 @@ CLASSES = (
     TIMELENDER_OT_pause,
     TIMELENDER_OT_reset,
     TIMELENDER_PT_sidebar,
+    TIMELENDER_PT_settings,
 )
+
+_LOCATION_ITEMS = [
+    ('TOPBAR_RIGHT', "Topbar Right", "Show timer on the right side of the Topbar"),
+    ('TOPBAR_LEFT',  "Topbar Left",  "Show timer on the left side of the Topbar"),
+    ('SIDEBAR',      "Sidebar Only", "Show timer only in the N-panel sidebar"),
+    ('STATUSBAR',    "Status Bar",   "Show timer in the Status Bar at the bottom"),
+]
 
 
 def register():
     for cls in CLASSES:
         bpy.utils.register_class(cls)
 
-    # Scene property — saved with the .blend file
+    # Scene properties — saved with the .blend file
     bpy.types.Scene.tl_elapsed = IntProperty(
         name="Elapsed Seconds",
         default=0,
         min=0,
     )
+    bpy.types.Scene.tl_location = EnumProperty(
+        name="Widget Location",
+        description="Where to display the timer widget",
+        items=_LOCATION_ITEMS,
+        default='TOPBAR_RIGHT',
+    )
 
-    # WindowManager properties — session-scoped (running state, modal flag)
-    bpy.types.WindowManager.tl_is_running = BoolProperty(
-        name="Timer Running",
-        default=False,
-    )
-    bpy.types.WindowManager.tl_elapsed = IntProperty(
-        name="Elapsed Seconds (Live)",
-        default=0,
-        min=0,
-    )
-    bpy.types.WindowManager.tl_modal_running = BoolProperty(
-        name="Modal Active",
-        default=False,
-    )
-    bpy.types.WindowManager.tl_should_stop = BoolProperty(
-        name="Stop Signal",
-        default=False,
-    )
+    # WindowManager properties — session-scoped
+    bpy.types.WindowManager.tl_is_running = BoolProperty(name="Timer Running", default=False)
+    bpy.types.WindowManager.tl_elapsed = IntProperty(name="Elapsed Seconds (Live)", default=0, min=0)
+    bpy.types.WindowManager.tl_modal_running = BoolProperty(name="Modal Active", default=False)
+    bpy.types.WindowManager.tl_should_stop = BoolProperty(name="Stop Signal", default=False)
 
     bpy.app.handlers.load_post.append(_on_load_post)
-    bpy.types.TOPBAR_HT_upper_bar.append(draw_timer_in_topbar)
+    bpy.types.TOPBAR_HT_upper_bar.append(draw_timer_topbar_right)
+    bpy.types.TOPBAR_HT_upper_bar.append(draw_timer_topbar_left)
+    bpy.types.STATUSBAR_HT_header.append(draw_timer_statusbar)
 
 
 def unregister():
-    bpy.types.TOPBAR_HT_upper_bar.remove(draw_timer_in_topbar)
+    bpy.types.STATUSBAR_HT_header.remove(draw_timer_statusbar)
+    bpy.types.TOPBAR_HT_upper_bar.remove(draw_timer_topbar_left)
+    bpy.types.TOPBAR_HT_upper_bar.remove(draw_timer_topbar_right)
     bpy.app.handlers.load_post.remove(_on_load_post)
 
     for prop in ("tl_is_running", "tl_elapsed", "tl_modal_running", "tl_should_stop"):
@@ -291,10 +291,11 @@ def unregister():
         except AttributeError:
             pass
 
-    try:
-        del bpy.types.Scene.tl_elapsed
-    except AttributeError:
-        pass
+    for prop in ("tl_elapsed", "tl_location"):
+        try:
+            delattr(bpy.types.Scene, prop)
+        except AttributeError:
+            pass
 
     for cls in reversed(CLASSES):
         bpy.utils.unregister_class(cls)

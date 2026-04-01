@@ -8,7 +8,8 @@ This is a tracking list for the alpha development of TimeLender.
 - [ ] **Automated saving**: Periodic save of the timer state to avoid loss on crash.
 
 ## UI/UX Improvements
-- [ ] **UI Location Settings**: Allow users to choose where the timer appears (Topbar Left, Topbar Right, Sidebar only, or Status Bar).
+- [x] **UI Location Settings**: Allow users to choose where the timer appears (Topbar Left, Topbar Right, Sidebar only, or Status Bar).
+- [ ] **Revise Location Settings**: Better places will be decided.
 - [ ] **Customizable Icons**: Option to change the timer icon or use text-only labels.
 - [ ] **Themes**: Color coding for running/paused states.
 - [ ] **Compact Mode**: Minimalist version of the timer for small screens.
