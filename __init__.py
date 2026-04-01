@@ -8,8 +8,9 @@ bl_info = {
     "category": "System",
 }
 
+import datetime
 import bpy
-from bpy.props import BoolProperty, EnumProperty, IntProperty
+from bpy.props import BoolProperty, CollectionProperty, EnumProperty, IntProperty, StringProperty
 from bpy.app.handlers import persistent
 
 
@@ -49,8 +50,26 @@ def _draw_widget(layout, wm):
     label_row.label(text=_fmt(wm.tl_elapsed), icon='TIME')
 
 
+def _log(scene, event: str):
+    """Append a timestamped entry to the session log if logging is enabled."""
+    if not scene.tl_log_sessions:
+        return
+    entry = scene.tl_log.add()
+    entry.timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    entry.event = event
+
+
 # ─────────────────────────────────────────────
-#  Persistence — load_post handler
+#  Log Entry PropertyGroup
+# ─────────────────────────────────────────────
+
+class TIMELENDER_PG_log_entry(bpy.types.PropertyGroup):
+    timestamp: StringProperty(name="Timestamp")
+    event: StringProperty(name="Event")
+
+
+# ─────────────────────────────────────────────
+#  Persistence handlers
 # ─────────────────────────────────────────────
 
 @persistent
@@ -59,6 +78,14 @@ def _on_load_post(_filepath):
     scene = bpy.context.scene
     if wm and scene:
         wm.tl_elapsed = scene.tl_elapsed
+        _log(scene, "Project opened")
+
+
+@persistent
+def _on_save_post(_filepath):
+    scene = bpy.context.scene
+    if scene:
+        _log(scene, "Project saved")
 
 
 # ─────────────────────────────────────────────
@@ -112,10 +139,14 @@ class TIMELENDER_OT_start(bpy.types.Operator):
 
     def execute(self, context):
         wm = context.window_manager
+        was_running = wm.tl_is_running
         wm.tl_is_running = True
         if not wm.tl_modal_running:
             wm.tl_modal_running = True
             bpy.ops.timelender.modal('INVOKE_DEFAULT')
+        if not was_running:
+            label = "Timer resumed" if wm.tl_elapsed > 0 else "Timer started"
+            _log(context.scene, label)
         _redraw_all()
         return {'FINISHED'}
 
@@ -127,6 +158,7 @@ class TIMELENDER_OT_pause(bpy.types.Operator):
 
     def execute(self, context):
         context.window_manager.tl_is_running = False
+        _log(context.scene, f"Timer paused at {_fmt(context.window_manager.tl_elapsed)}")
         _redraw_all()
         return {'FINISHED'}
 
@@ -138,6 +170,7 @@ class TIMELENDER_OT_reset(bpy.types.Operator):
 
     def execute(self, context):
         wm = context.window_manager
+        _log(context.scene, f"Timer reset (was {_fmt(wm.tl_elapsed)})")
         wm.tl_is_running = False
         wm.tl_elapsed = 0
         context.scene.tl_elapsed = 0
@@ -148,7 +181,21 @@ class TIMELENDER_OT_reset(bpy.types.Operator):
 
 
 # ─────────────────────────────────────────────
-#  Sidebar (N-panel) — Timer Panel
+#  Clear Log Operator
+# ─────────────────────────────────────────────
+
+class TIMELENDER_OT_clear_log(bpy.types.Operator):
+    bl_idname = "timelender.clear_log"
+    bl_label = "Clear Log"
+    bl_description = "Remove all session log entries"
+
+    def execute(self, context):
+        context.scene.tl_log.clear()
+        return {'FINISHED'}
+
+
+# ─────────────────────────────────────────────
+#  Sidebar — Timer Panel
 # ─────────────────────────────────────────────
 
 class TIMELENDER_PT_sidebar(bpy.types.Panel):
@@ -179,7 +226,45 @@ class TIMELENDER_PT_sidebar(bpy.types.Panel):
 
 
 # ─────────────────────────────────────────────
-#  Sidebar (N-panel) — Settings Panel
+#  Sidebar — Session Log Panel
+# ─────────────────────────────────────────────
+
+class TIMELENDER_PT_log(bpy.types.Panel):
+    bl_idname = "TIMELENDER_PT_log"
+    bl_label = "Session Log"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "TimeLender"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw_header(self, context):
+        self.layout.prop(context.scene, "tl_log_sessions", text="")
+
+    def draw(self, context):
+        scene = context.scene
+        layout = self.layout
+
+        if not scene.tl_log_sessions:
+            layout.label(text="Enable logging above to record events.", icon='INFO')
+            return
+
+        log = scene.tl_log
+        if not log:
+            layout.label(text="No events recorded yet.", icon='INFO')
+        else:
+            box = layout.box()
+            col = box.column(align=True)
+            # Show newest entries first
+            for entry in reversed(list(log)):
+                row = col.row(align=True)
+                row.label(text=entry.timestamp, icon='TIME')
+                row.label(text=entry.event)
+
+        layout.operator("timelender.clear_log", icon='TRASH')
+
+
+# ─────────────────────────────────────────────
+#  Sidebar — Settings Panel
 # ─────────────────────────────────────────────
 
 class TIMELENDER_PT_settings(bpy.types.Panel):
@@ -196,7 +281,7 @@ class TIMELENDER_PT_settings(bpy.types.Panel):
 
 
 # ─────────────────────────────────────────────
-#  Topbar Draw Functions
+#  Topbar / Statusbar Draw Functions
 # ─────────────────────────────────────────────
 
 def draw_timer_topbar_right(self, context):
@@ -219,10 +304,6 @@ def draw_timer_topbar_left(self, context):
     _draw_widget(layout, context.window_manager)
 
 
-# ─────────────────────────────────────────────
-#  Status Bar Draw Function
-# ─────────────────────────────────────────────
-
 def draw_timer_statusbar(self, context):
     if context.scene.tl_location != 'STATUSBAR':
         return
@@ -234,11 +315,14 @@ def draw_timer_statusbar(self, context):
 # ─────────────────────────────────────────────
 
 CLASSES = (
+    TIMELENDER_PG_log_entry,
     TIMELENDER_OT_modal,
     TIMELENDER_OT_start,
     TIMELENDER_OT_pause,
     TIMELENDER_OT_reset,
+    TIMELENDER_OT_clear_log,
     TIMELENDER_PT_sidebar,
+    TIMELENDER_PT_log,
     TIMELENDER_PT_settings,
 )
 
@@ -255,17 +339,19 @@ def register():
         bpy.utils.register_class(cls)
 
     # Scene properties — saved with the .blend file
-    bpy.types.Scene.tl_elapsed = IntProperty(
-        name="Elapsed Seconds",
-        default=0,
-        min=0,
-    )
+    bpy.types.Scene.tl_elapsed = IntProperty(name="Elapsed Seconds", default=0, min=0)
     bpy.types.Scene.tl_location = EnumProperty(
         name="Widget Location",
         description="Where to display the timer widget",
         items=_LOCATION_ITEMS,
         default='TOPBAR_RIGHT',
     )
+    bpy.types.Scene.tl_log_sessions = BoolProperty(
+        name="Log Sessions",
+        description="Record session events (start, pause, reset, open, save)",
+        default=False,
+    )
+    bpy.types.Scene.tl_log = CollectionProperty(type=TIMELENDER_PG_log_entry)
 
     # WindowManager properties — session-scoped
     bpy.types.WindowManager.tl_is_running = BoolProperty(name="Timer Running", default=False)
@@ -274,6 +360,7 @@ def register():
     bpy.types.WindowManager.tl_should_stop = BoolProperty(name="Stop Signal", default=False)
 
     bpy.app.handlers.load_post.append(_on_load_post)
+    bpy.app.handlers.save_post.append(_on_save_post)
     bpy.types.TOPBAR_HT_upper_bar.append(draw_timer_topbar_right)
     bpy.types.TOPBAR_HT_upper_bar.append(draw_timer_topbar_left)
     bpy.types.STATUSBAR_HT_header.append(draw_timer_statusbar)
@@ -283,6 +370,7 @@ def unregister():
     bpy.types.STATUSBAR_HT_header.remove(draw_timer_statusbar)
     bpy.types.TOPBAR_HT_upper_bar.remove(draw_timer_topbar_left)
     bpy.types.TOPBAR_HT_upper_bar.remove(draw_timer_topbar_right)
+    bpy.app.handlers.save_post.remove(_on_save_post)
     bpy.app.handlers.load_post.remove(_on_load_post)
 
     for prop in ("tl_is_running", "tl_elapsed", "tl_modal_running", "tl_should_stop"):
@@ -291,7 +379,7 @@ def unregister():
         except AttributeError:
             pass
 
-    for prop in ("tl_elapsed", "tl_location"):
+    for prop in ("tl_elapsed", "tl_location", "tl_log_sessions", "tl_log"):
         try:
             delattr(bpy.types.Scene, prop)
         except AttributeError:
