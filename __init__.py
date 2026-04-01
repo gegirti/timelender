@@ -10,6 +10,7 @@ bl_info = {
 
 import bpy
 from bpy.props import BoolProperty, IntProperty
+from bpy.app.handlers import persistent
 
 
 # ─────────────────────────────────────────────
@@ -29,6 +30,20 @@ def _redraw_topbar():
     for window in bpy.context.window_manager.windows:
         for area in window.screen.areas:
             area.tag_redraw()
+
+
+# ─────────────────────────────────────────────
+#  Persistence — load_post handler
+#  Restores wm.tl_elapsed from the scene when
+#  a .blend file is opened.
+# ─────────────────────────────────────────────
+
+@persistent
+def _on_load_post(_filepath):
+    wm = bpy.context.window_manager
+    scene = bpy.context.scene
+    if wm and scene:
+        wm.tl_elapsed = scene.tl_elapsed
 
 
 # ─────────────────────────────────────────────
@@ -59,6 +74,8 @@ class TIMELENDER_OT_modal(bpy.types.Operator):
 
         if event.type == 'TIMER' and wm.tl_is_running:
             wm.tl_elapsed += 1
+            # Persist to scene so the value is saved with the .blend file.
+            context.scene.tl_elapsed = wm.tl_elapsed
             _redraw_topbar()
 
         return {'PASS_THROUGH'}
@@ -124,6 +141,7 @@ class TIMELENDER_OT_reset(bpy.types.Operator):
         wm = context.window_manager
         wm.tl_is_running = False
         wm.tl_elapsed = 0
+        context.scene.tl_elapsed = 0
         # Signal the modal to terminate itself cleanly.
         if wm.tl_modal_running:
             wm.tl_should_stop = True
@@ -189,7 +207,7 @@ def draw_timer_in_topbar(self, context):
 
     # ▶ / ⏸  toggle button
     if not is_running:
-        op = row.operator(
+        row.operator(
             "timelender.start",
             text="",
             icon='PLAY',
@@ -197,7 +215,7 @@ def draw_timer_in_topbar(self, context):
         )
         row.active = True
     else:
-        op = row.operator(
+        row.operator(
             "timelender.pause",
             text="",
             icon='PAUSE',
@@ -213,10 +231,6 @@ def draw_timer_in_topbar(self, context):
     time_row = layout.row(align=True)
     time_row.scale_x = 1.0
     time_row.enabled = True
-
-    # Highlight label green while running
-    if is_running:
-        time_row.alert = False          # keep neutral; no built-in green for label
     time_row.label(text=_fmt(wm.tl_elapsed), icon='TIME')
 
 
@@ -237,13 +251,20 @@ def register():
     for cls in CLASSES:
         bpy.utils.register_class(cls)
 
-    # WindowManager properties (session-scoped, no file save needed for v1)
+    # Scene property — saved with the .blend file
+    bpy.types.Scene.tl_elapsed = IntProperty(
+        name="Elapsed Seconds",
+        default=0,
+        min=0,
+    )
+
+    # WindowManager properties — session-scoped (running state, modal flag)
     bpy.types.WindowManager.tl_is_running = BoolProperty(
         name="Timer Running",
         default=False,
     )
     bpy.types.WindowManager.tl_elapsed = IntProperty(
-        name="Elapsed Seconds",
+        name="Elapsed Seconds (Live)",
         default=0,
         min=0,
     )
@@ -256,19 +277,24 @@ def register():
         default=False,
     )
 
-    # Inject into the right side of the Topbar
+    bpy.app.handlers.load_post.append(_on_load_post)
     bpy.types.TOPBAR_HT_upper_bar.append(draw_timer_in_topbar)
-
 
 
 def unregister():
     bpy.types.TOPBAR_HT_upper_bar.remove(draw_timer_in_topbar)
+    bpy.app.handlers.load_post.remove(_on_load_post)
 
     for prop in ("tl_is_running", "tl_elapsed", "tl_modal_running", "tl_should_stop"):
         try:
             delattr(bpy.types.WindowManager, prop)
         except AttributeError:
             pass
+
+    try:
+        del bpy.types.Scene.tl_elapsed
+    except AttributeError:
+        pass
 
     for cls in reversed(CLASSES):
         bpy.utils.unregister_class(cls)

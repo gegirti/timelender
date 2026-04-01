@@ -3,7 +3,7 @@
 This is a tracking list for the alpha development of TimeLender.
 
 ## Persistence & Data
-- [ ] **Save time within .blend file**: Store elapsed time in Scene or Custom Properties so it persists across sessions.
+- [x] **Save time within .blend file**: Store elapsed time in Scene or Custom Properties so it persists across sessions.
 - [ ] **Project name tracking**: Automatically associate time with the filename.
 - [ ] **Automated saving**: Periodic save of the timer state to avoid loss on crash.
 
