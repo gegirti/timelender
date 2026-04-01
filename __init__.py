@@ -192,7 +192,13 @@ class TIMELENDER_OT_export_log(bpy.types.Operator, ExportHelper):
     bl_description = "Export the session log to a CSV file"
 
     filename_ext = ".csv"
-    filter_glob: StringProperty(default="*_timelender_log.csv", options={'HIDDEN'})
+    filter_glob: StringProperty(default="*.csv", options={'HIDDEN'})
+
+    def invoke(self, context, event):
+        import os
+        blend_name = os.path.splitext(bpy.path.basename(bpy.data.filepath))[0] or "untitled"
+        self.filepath = f"{blend_name}_timelender_log.csv"
+        return ExportHelper.invoke(self, context, event)
 
     def execute(self, context):
         log = context.scene.tl_log
