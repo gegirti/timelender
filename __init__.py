@@ -1,7 +1,7 @@
 bl_info = {
     "name": "TimeLender (Alpha)",
     "author": "TimeLender",
-    "version": (0, 1, 0),
+    "version": (0, 1, 1),
     "blender": (4, 0, 0),
     "location": "Topbar (Right) / Sidebar (TimeLender tab)",
     "description": "Project session timer (Alpha Version - Work in Progress)",
