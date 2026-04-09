@@ -399,7 +399,7 @@ def register():
         name="Widget Location",
         description="Where to display the timer widget",
         items=_LOCATION_ITEMS,
-        default='TOPBAR_RIGHT',
+        default='STATUSBAR',
     )
     bpy.types.Scene.tl_auto_start = BoolProperty(
         name="Auto-Start on Open",
