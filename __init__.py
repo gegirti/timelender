@@ -74,6 +74,15 @@ class TIMELENDER_PG_log_entry(bpy.types.PropertyGroup):
 #  Persistence handlers
 # ─────────────────────────────────────────────
 
+def _deferred_auto_start():
+    """Called via bpy.app.timers after file load — safe to invoke operators here."""
+    wm = bpy.context.window_manager
+    scene = bpy.context.scene
+    if scene and scene.tl_auto_start and not wm.tl_is_running:
+        bpy.ops.timelender.start('INVOKE_DEFAULT')
+    return None  # run once
+
+
 @persistent
 def _on_load_post(_filepath):
     wm = bpy.context.window_manager
@@ -81,6 +90,8 @@ def _on_load_post(_filepath):
     if wm and scene:
         wm.tl_elapsed = scene.tl_elapsed
         _log(scene, "Project opened")
+        if scene.tl_auto_start:
+            bpy.app.timers.register(_deferred_auto_start, first_interval=0.1)
 
 
 @persistent
@@ -320,6 +331,7 @@ class TIMELENDER_PT_settings(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         layout.prop(context.scene, "tl_location", text="Widget Location")
+        layout.prop(context.scene, "tl_auto_start")
 
 
 # ─────────────────────────────────────────────
@@ -389,6 +401,11 @@ def register():
         items=_LOCATION_ITEMS,
         default='TOPBAR_RIGHT',
     )
+    bpy.types.Scene.tl_auto_start = BoolProperty(
+        name="Auto-Start on Open",
+        description="Automatically start the timer when a project is opened",
+        default=False,
+    )
     bpy.types.Scene.tl_log_sessions = BoolProperty(
         name="Log Sessions",
         description="Record session events (start, pause, reset, open, save)",
@@ -422,7 +439,7 @@ def unregister():
         except AttributeError:
             pass
 
-    for prop in ("tl_elapsed", "tl_location", "tl_log_sessions", "tl_log"):
+    for prop in ("tl_elapsed", "tl_location", "tl_auto_start", "tl_log_sessions", "tl_log"):
         try:
             delattr(bpy.types.Scene, prop)
         except AttributeError:
