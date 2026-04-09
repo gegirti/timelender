@@ -79,8 +79,11 @@ def _deferred_auto_start():
     """Called via bpy.app.timers after file load — safe to invoke operators here."""
     wm = bpy.context.window_manager
     scene = bpy.context.scene
-    if scene and scene.tl_auto_start and not wm.tl_is_running:
-        bpy.ops.timelender.start('INVOKE_DEFAULT')
+    if scene and scene.tl_auto_start and not wm.tl_modal_running:
+        # Don't start counting yet — just arm the modal and wait for first activity.
+        wm.tl_pending_auto_start = True
+        wm.tl_modal_running = True
+        bpy.ops.timelender.modal('INVOKE_DEFAULT')
     return None  # run once
 
 
@@ -130,6 +133,12 @@ class TIMELENDER_OT_modal(bpy.types.Operator):
         # Track user activity — any non-timer input resets the clock
         if event.type not in {'TIMER', 'NONE', 'INBETWEEN_MOUSEMOVE'}:
             wm.tl_last_activity = time.monotonic()
+            # Fire auto-start on the very first real interaction after load
+            if wm.tl_pending_auto_start:
+                wm.tl_pending_auto_start = False
+                wm.tl_is_running = True
+                _log(scene, "Timer auto-started on first activity")
+                _redraw_all()
 
         if event.type == 'TIMER' and wm.tl_is_running:
             # Auto-pause on inactivity
@@ -437,7 +446,7 @@ def register():
     )
     bpy.types.Scene.tl_auto_start = BoolProperty(
         name="Auto-Start on Open",
-        description="Automatically start the timer when a project is opened",
+        description="Start the timer automatically on the first interaction after opening a project",
         default=False,
     )
     bpy.types.Scene.tl_log_sessions = BoolProperty(
@@ -449,6 +458,7 @@ def register():
 
     # WindowManager properties — session-scoped
     bpy.types.WindowManager.tl_last_activity = bpy.props.FloatProperty(name="Last Activity", default=0.0)
+    bpy.types.WindowManager.tl_pending_auto_start = BoolProperty(name="Pending Auto-Start", default=False)
     bpy.types.WindowManager.tl_is_running = BoolProperty(name="Timer Running", default=False)
     bpy.types.WindowManager.tl_elapsed = IntProperty(name="Elapsed Seconds (Live)", default=0, min=0)
     bpy.types.WindowManager.tl_modal_running = BoolProperty(name="Modal Active", default=False)
@@ -468,7 +478,7 @@ def unregister():
     bpy.app.handlers.save_post.remove(_on_save_post)
     bpy.app.handlers.load_post.remove(_on_load_post)
 
-    for prop in ("tl_last_activity", "tl_is_running", "tl_elapsed", "tl_modal_running", "tl_should_stop"):
+    for prop in ("tl_last_activity", "tl_pending_auto_start", "tl_is_running", "tl_elapsed", "tl_modal_running", "tl_should_stop"):
         try:
             delattr(bpy.types.WindowManager, prop)
         except AttributeError:
