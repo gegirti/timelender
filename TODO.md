@@ -15,12 +15,12 @@ This is a tracking list for the alpha development of TimeLender.
 - [ ] **Compact Mode**: Minimalist version of the timer for small screens.
 
 ## Workflow Features
-- [ ] **Auto-Pause on Inactivity**: Detect when the user hasn't interacted with Blender for X minutes and pause the timer.
+- [x] **Auto-Pause on Inactivity**: Detect when the user hasn't interacted with Blender for X minutes and pause the timer.
 - [x] **Session Logs**: View history of previous sessions within the sidebar.
 - [x] **Export to CSV**: Support for exporting time data for billing or tracking.
 - [ ] **Multi-file aggregation**: Track total time across various project files.
 
 ## Technical Tasks
-- [ ] Refactor modal to handle multiple window events better.
-- [ ] Improve performance of UI redrawing.
-- [ ] Add unit tests for time formatting logic.
+- [x] Refactor modal to handle multiple window events better (replaced by an app timer + activity detection).
+- [x] Improve performance of UI redrawing.
+- [x] Add unit tests for time formatting logic.
